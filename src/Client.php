@@ -185,6 +185,30 @@ class Client extends Configurable
     }
 
     /**
+     * Reads data sent by the server or returns an empty array.
+     *
+     * @return array<Payload> Payload received since the last call to receive()
+     */
+    public function read(): ?array
+    {
+        if (!$this->isConnected()) {
+            return null;
+        }
+
+        $data = $this->socket->read();
+
+        if (!$data) {
+            return [];
+        }
+
+        $this->payloadHandler->handle($data);
+        $received = $this->received;
+        $this->received = [];
+
+        return $received;
+    }
+
+    /**
      * Receives data sent by the server.
      *
      * @return array<Payload> Payload received since the last call to receive()

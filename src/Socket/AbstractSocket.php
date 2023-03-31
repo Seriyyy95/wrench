@@ -226,6 +226,59 @@ abstract class AbstractSocket extends Configurable implements ResourceInterface
     }
 
     /**
+     * @return string
+     * 
+     * Read all available data from socket or return empty string without blocking execution
+     */
+    public function read(): string
+    {
+        $buffer = '';
+
+        try {
+            stream_set_blocking($this->socket, false);
+
+            do {
+                // feof means socket has been closed
+                // also, sometimes in long running processes the system seems to kill the underlying socket
+                if (!$this->socket || \feof($this->socket)) {
+                    $this->disconnect();
+
+                    return $buffer;
+                }
+
+                $result = \fgetc($this->socket);
+
+                if (false === $result) {
+                    return $buffer;
+                }
+
+                $buffer .= $result;
+
+                // feof means socket has been closed
+                if (\feof($this->socket)) {
+                    $this->disconnect();
+
+                    return $buffer;
+                }
+
+                $continue = false;
+
+                if (\strlen($result) > 0) {
+                    $continue = true;
+                }
+                
+            } while ($continue);
+
+            return $buffer;
+
+        } finally {
+            if ($this->socket && !\feof($this->socket)) {
+                \stream_set_blocking($this->socket, true);
+            }
+        }
+    }
+
+    /**
      * Receive data from the socket.
      */
     public function receive(int $length = self::DEFAULT_RECEIVE_LENGTH): string
