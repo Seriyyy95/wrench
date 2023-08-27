@@ -9,6 +9,7 @@ use Wrench\Exception\SocketException;
 use Wrench\Payload\Payload;
 use Wrench\Payload\PayloadHandler;
 use Wrench\Protocol\Protocol;
+use Wrench\Socket\AbstractSocket;
 use Wrench\Socket\ClientSocket;
 use Wrench\Util\Configurable;
 
@@ -66,9 +67,9 @@ class Client extends Configurable
     protected $received = [];
 
     /**
-     * @param string $origin  The origin to include in the handshake (required
+     * @param string $origin The origin to include in the handshake (required
      *                        in later versions of the protocol)
-     * @param array  $options (optional) Array of options
+     * @param array $options (optional) Array of options
      *                        - socket   => AbstractSocket instance (otherwise created)
      *                        - protocol => Protocol
      */
@@ -187,15 +188,17 @@ class Client extends Configurable
     /**
      * Receives data sent by the server.
      *
+     * @param bool $blocking
      * @return array<Payload> Payload received since the last call to receive()
+     * @throws Exception\PayloadException
      */
-    public function receive(): ?array
+    public function receive($blocking = true): ?array
     {
         if (!$this->isConnected()) {
             return null;
         }
 
-        $data = $this->socket->receive();
+        $data = $this->socket->receive(AbstractSocket::DEFAULT_RECEIVE_LENGTH, $blocking);
 
         if (!$data) {
             return [];
@@ -211,10 +214,10 @@ class Client extends Configurable
     /**
      * Connect to the server.
      *
-     * @throws HandshakeException
+     * @return bool Whether a new connection was made
      * @throws SocketException
      *
-     * @return bool Whether a new connection was made
+     * @throws HandshakeException
      */
     public function connect(): bool
     {
@@ -237,7 +240,7 @@ class Client extends Configurable
         );
 
         $this->socket->send($handshake);
-        $response = $this->socket->receive(self::MAX_HANDSHAKE_RESPONSE);
+        $response = $this->socket->receive(self::MAX_HANDSHAKE_RESPONSE, true);
 
         return $this->connected =
             $this->protocol->validateResponseHandshake($response, $key);

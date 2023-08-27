@@ -60,9 +60,9 @@ abstract class AbstractSocket extends Configurable implements ResourceInterface
     /**
      * Gets the IP address of the socket.
      *
+     * @return string
      * @throws \Wrench\Exception\SocketException If the IP address cannot be obtained
      *
-     * @return string
      */
     public function getIp(): string
     {
@@ -101,7 +101,7 @@ abstract class AbstractSocket extends Configurable implements ResourceInterface
      * or all the other sections (the whole initial part, the address).
      *
      * @param string $name (from $this->getName() usually)
-     * @param int    $part 0 or 1
+     * @param int $part 0 or 1
      *
      * @throws SocketException
      */
@@ -114,7 +114,7 @@ abstract class AbstractSocket extends Configurable implements ResourceInterface
         $parts = \explode(':', $name);
 
         if (\count($parts) < 2) {
-            throw new SocketException('Could not parse name parts: '.$name);
+            throw new SocketException('Could not parse name parts: ' . $name);
         }
 
         if (self::NAME_PART_PORT == $part) {
@@ -129,16 +129,16 @@ abstract class AbstractSocket extends Configurable implements ResourceInterface
     /**
      * Gets the port of the socket.
      *
+     * @return int
      * @throws \Wrench\Exception\SocketException If the port cannot be obtained
      *
-     * @return int
      */
     public function getPort(): int
     {
         $name = $this->getName();
 
         if ($name) {
-            return (int) self::getNamePart($name, self::NAME_PART_PORT);
+            return (int)self::getNamePart($name, self::NAME_PART_PORT);
         } else {
             throw new SocketException('Cannot get socket IP address');
         }
@@ -196,9 +196,9 @@ abstract class AbstractSocket extends Configurable implements ResourceInterface
     /**
      * @param string $data Binary data to send down the socket
      *
+     * @return int|null The number of bytes sent or null on error
      * @throws SocketException
      *
-     * @return int|null The number of bytes sent or null on error
      */
     public function send(string $data): ?int
     {
@@ -226,86 +226,70 @@ abstract class AbstractSocket extends Configurable implements ResourceInterface
     }
 
     /**
-     * Receive data from the socket.
+     * @param int $length - maximum length of the message
+     * @param bool $blocking - determines should it wait until get anything or return an empty result if there is nothing to read
+     * @return string
+     *
+     * Receive data from the socket
+     * Returns empty string immediately when there are no data and $blocking = false
+     * Returns message as soon as possible even if $blocking = true
+     * Returns an empty string when $blocking = true and reading timed out (5 sec)
+     *
      */
-    public function receive(int $length = self::DEFAULT_RECEIVE_LENGTH): string
+    public function receive(int $length = self::DEFAULT_RECEIVE_LENGTH, $blocking = true): string
     {
         $buffer = '';
-        $metadata['unread_bytes'] = 0;
-        $makeBlockingAfterRead = false;
 
         try {
+            stream_set_blocking($this->socket, false);
+
+            $startTime = hrtime()[0];
+
             do {
+                $continue = true;
+
                 // feof means socket has been closed
                 // also, sometimes in long running processes the system seems to kill the underlying socket
                 if (!$this->socket || \feof($this->socket)) {
                     $this->disconnect();
 
-                    return $buffer;
+                    $continue = false;
                 }
 
-                $result = \fread($this->socket, $length);
+                //returns an empty result when there is nothing to read
+                $result = stream_get_contents($this->socket, $length);
 
-                if ($makeBlockingAfterRead) {
-                    \stream_set_blocking($this->socket, true);
-                    $makeBlockingAfterRead = false;
+                if (empty($result)) {
+                    //If blocling enabled but there are no more data, return immediately!
+                    if (false === $blocking || false === empty($buffer)) {
+                        $continue = false;
+                        //If blocking enabled and timed out, return immediately
+                    } elseif (hrtime()[0] - $startTime > 5) {
+                        $continue = false;
+                    }
+                } else {
+                    $buffer .= $result;
                 }
-
-                if (false === $result) {
-                    return $buffer;
-                }
-
-                $buffer .= $result;
 
                 // feof means socket has been closed
                 if (\feof($this->socket)) {
                     $this->disconnect();
 
-                    return $buffer;
+                    $continue = false;
                 }
 
-                $continue = false;
-
-                if (1 === \strlen($result)) {
-                    // Workaround Chrome behavior (still needed?)
-                    $continue = true;
+                if (\strlen($result) >= $length) {
+                    $continue = false;
                 }
 
-                if (\strlen($result) === $length) {
-                    $continue = true;
-                }
-
-                // Continue if more data to be read
-                $metadata = \stream_get_meta_data($this->socket);
-
-                /** @phpstan-ignore-next-line */
-                if (isset($metadata['unread_bytes'])) {
-                    if (!$metadata['unread_bytes']) {
-                        // stop it, if we read a full message in previous time
-                        $continue = false;
-                    } else {
-                        $continue = true;
-                        // it makes sense only if unread_bytes less than DEFAULT_RECEIVE_LENGTH
-                        if ($length > $metadata['unread_bytes']) {
-                            // http://php.net/manual/en/function.stream-get-meta-data.php
-                            // 'unread_bytes' don't describes real length correctly.
-                            // $length = $metadata['unread_bytes'];
-
-                            // Socket is a blocking by default. When we do a blocking read from an empty
-                            // queue it will block and the server will hang. https://bugs.php.net/bug.php?id=1739
-                            \stream_set_blocking($this->socket, false);
-                            $makeBlockingAfterRead = true;
-                        }
-                    }
-                }
             } while ($continue);
-
-            return $buffer;
         } finally {
-            if ($this->socket && !\feof($this->socket) && $makeBlockingAfterRead) {
+            if ($this->socket && !\feof($this->socket)) {
                 \stream_set_blocking($this->socket, true);
             }
         }
+
+        return $buffer;
     }
 
     /**

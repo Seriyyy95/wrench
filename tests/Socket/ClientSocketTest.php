@@ -141,4 +141,41 @@ Sec-WebSocket-Version: 13\r\n\r\n");
 
         $helper->tearDown();
     }
+
+    /**
+     * Test the read data without blocking.
+     */
+    public function testReceiveNonBlocking(): void
+    {
+        try {
+            $helper = new ServerTestHelper();
+            $helper->setUp();
+
+            $instance = self::getInstance($helper->getConnectionString());
+            $success = $instance->connect();
+
+            self::assertTrue($success, 'Client socket can connect to test server');
+
+            $sent = $instance->send("GET /echo HTTP/1.1\r
+Host: localhost\r
+Upgrade: websocket\r
+Connection: Upgrade\r
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r
+Origin: http://localhost\r
+Sec-WebSocket-Version: 13\r\n\r\n");
+            self::assertNotEquals(false, $sent, 'Client socket can send to test server');
+
+            $response = $instance->receive(AbstractSocket::DEFAULT_RECEIVE_LENGTH);
+            self::assertStringStartsWith('HTTP', $response, 'Response looks like HTTP handshake response');
+
+            $response = $instance->receive(AbstractSocket::DEFAULT_RECEIVE_LENGTH, false);
+            $this->assertEmpty($response, 'No more data for reading');
+
+        } catch (\Exception $e) {
+            $helper->tearDown();
+            throw $e;
+        }
+
+        $helper->tearDown();
+    }
 }
